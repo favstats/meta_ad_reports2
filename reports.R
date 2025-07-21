@@ -42,9 +42,45 @@ pacman::p_load(
   piggyback
 )
 
+install_from_github_zip <- function(repo) {
+  pkg <- basename(repo)
+  if (requireNamespace(pkg, quietly = TRUE)) {
+    message(sprintf("✔ Package '%s' is already installed.", pkg))
+    return(invisible(TRUE))
+  }
+  
+  branches <- c("main", "master")
+  success <- FALSE
+  
+  for (branch in branches) {
+    zip_url <- sprintf("https://github.com/%s/archive/refs/heads/%s.zip", repo, branch)
+    temp_file <- tempfile(fileext = ".zip")
+    temp_dir <- tempfile()
+    
+    message(sprintf("→ Trying branch '%s'...", branch))
+    try({
+      download.file(zip_url, destfile = temp_file, mode = "wb", quiet = TRUE)
+      unzip(temp_file, exdir = temp_dir)
+      pkg_path <- file.path(temp_dir, paste0(pkg, "-", branch))
+      install.packages(pkg_path, repos = NULL, type = "source")
+      if (requireNamespace(pkg, quietly = TRUE)) {
+        message(sprintf("✔ Package '%s' installed successfully from branch '%s'.", pkg, branch))
+        success <- TRUE
+        break
+      }
+    }, silent = TRUE)
+  }
+  
+  if (!success) {
+    stop(sprintf("✖ Failed to install '%s' from GitHub using branches: %s",
+                 pkg, paste(branches, collapse = ", ")))
+  }
+  
+  invisible(TRUE)
+}
 
 if(!("playwrightr" %in% tibble::as_tibble(installed.packages())$Package)){
-  remotes::install_github("benjaminguinaudeau/playwrightr")
+  install_from_github_zip("benjaminguinaudeau/playwrightr")
 }
 
 library(playwrightr)

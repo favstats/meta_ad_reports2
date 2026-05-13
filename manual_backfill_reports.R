@@ -28,15 +28,34 @@ parse_env_list <- function(name, default) {
     discard(~ .x == "")
 }
 
-countries <- parse_env_list("REPORT_COUNTRIES", "US") %>% str_to_upper()
+env_or_default <- function(name, default) {
+  value <- Sys.getenv(name, unset = "")
+  if (nzchar(value)) value else default
+}
+
+default_countries <- function() {
+  readRDS("cntry_list.rds") %>%
+    pull(iso2) %>%
+    str_to_upper() %>%
+    unique()
+}
+
+requested_countries <- Sys.getenv("REPORT_COUNTRIES", unset = "")
+countries <- if (!nzchar(requested_countries) || str_to_upper(requested_countries) %in% c("ALL", "WORLD")) {
+  default_countries()
+} else {
+  parse_env_list("REPORT_COUNTRIES", requested_countries) %>% str_to_upper()
+}
+
 time_presets <- parse_env_list("REPORT_TIME_PRESETS", "last_7_days")
-start_date <- ymd(Sys.getenv("REPORT_START_DATE", unset = as.character(today() - days(14))))
-end_date <- ymd(Sys.getenv("REPORT_END_DATE", unset = as.character(today() - days(2))))
-max_dates <- as.integer(Sys.getenv("REPORT_MAX_DATES", unset = "1000"))
+start_date <- ymd(env_or_default("REPORT_START_DATE", as.character(today() - days(14))))
+end_date <- ymd(env_or_default("REPORT_END_DATE", as.character(today() - days(2))))
+max_jobs_env <- Sys.getenv("REPORT_MAX_DOWNLOADS", unset = Sys.getenv("REPORT_MAX_DATES", unset = ""))
+max_jobs <- suppressWarnings(as.integer(max_jobs_env))
 report_repo <- Sys.getenv("REPORT_REPO", unset = "favstats/meta_ad_reports2")
 
-if (is.na(max_dates)) {
-  max_dates <- 1000L
+if (!nzchar(max_jobs_env)) {
+  max_jobs <- Inf
 }
 
 if (is.na(start_date) || is.na(end_date)) {
@@ -55,10 +74,54 @@ base_query$variables <- NULL
 target_tags <- tidyr::expand_grid(country = countries, time_preset = time_presets) %>%
   transmute(tag = paste0(country, "-", time_preset)) %>%
   pull(tag)
+
+ensure_report_releases <- function(repo, tags) {
+  parsed_repo <- piggyback:::parse_repo(repo)
+
+  walk(unique(tags), function(tag) {
+    release_exists <- tryCatch({
+      gh::gh(
+        "/repos/:owner/:repo/releases/tags/:tag",
+        owner = parsed_repo[[1]],
+        repo = parsed_repo[[2]],
+        tag = tag
+      )
+      TRUE
+    }, error = function(e) FALSE)
+
+    if (release_exists) {
+      return(invisible(TRUE))
+    }
+
+    message(glue("Creating missing release {tag}"))
+    gh::gh(
+      "POST /repos/:owner/:repo/releases",
+      owner = parsed_repo[[1]],
+      repo = parsed_repo[[2]],
+      tag_name = tag,
+      name = tag,
+      body = "Data release",
+      draft = FALSE,
+      prerelease = FALSE
+    )
+  })
+}
+
+ensure_report_releases(report_repo, target_tags)
 full_repos <- get_full_release(report_repo, tags = target_tags)
 latest_dir <- tempfile("meta-report-latest-")
 dir_create(latest_dir)
 on.exit(unlink(latest_dir, recursive = TRUE, force = TRUE), add = TRUE)
+
+existing_assets <- full_repos %>%
+  filter(!is.na(file_name), file_name != "", file_name != "latest.rds") %>%
+  mutate(
+    report_date = ymd(str_extract(file_name, "\\d{4}-\\d{2}-\\d{2}")),
+    ext = str_extract(file_name, "[^.]+$")
+  ) %>%
+  filter(!is.na(report_date), ext %in% c("rds", "zip")) %>%
+  distinct(tag, report_date, ext) %>%
+  count(tag, report_date, name = "asset_count")
 
 fetch_report_download_uri <- function(country, report_date, time_preset) {
   body <- base_query
@@ -154,8 +217,21 @@ process_report <- function(country, report_date, time_preset) {
 
 dates <- seq.Date(start_date, end_date, by = "day")
 jobs <- tidyr::expand_grid(country = countries, time_preset = time_presets, report_date = dates) %>%
-  arrange(time_preset, country, report_date) %>%
-  slice_head(n = max_dates)
+  mutate(tag = paste0(country, "-", time_preset)) %>%
+  left_join(existing_assets, by = c("tag", "report_date")) %>%
+  filter(is.na(asset_count) | asset_count < 2) %>%
+  select(country, time_preset, report_date) %>%
+  arrange(time_preset, country, report_date)
+
+if (is.finite(max_jobs)) {
+  jobs <- slice_head(jobs, n = max_jobs)
+}
+
+message(glue("Queued {nrow(jobs)} missing report downloads across {length(target_tags)} releases."))
+
+if (nrow(jobs) == 0) {
+  quit(save = "no", status = 0)
+}
 
 walk2(
   seq_len(nrow(jobs)),

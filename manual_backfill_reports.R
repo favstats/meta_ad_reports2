@@ -1,5 +1,23 @@
 options(timeout = 600)
 
+# Ensure gh::gh() picks up an auth token regardless of which env var the runner
+# populates. Without this we fall back to unauthenticated requests and trip the
+# 60 req/hr IP-based GitHub API rate limit partway through the 204-country
+# release pre-flight (see issue: rate-limit at country ~61).
+gh_token_value <- Sys.getenv("GH_PAT", unset =
+  Sys.getenv("GITHUB_PAT", unset =
+    Sys.getenv("GH_TOKEN", unset =
+      Sys.getenv("GITHUB_TOKEN", unset = ""))))
+if (nzchar(gh_token_value)) {
+  Sys.setenv(
+    GITHUB_PAT = gh_token_value,
+    GITHUB_TOKEN = gh_token_value,
+    GH_TOKEN = gh_token_value
+  )
+} else {
+  warning("No GitHub token found in env (GH_PAT/GITHUB_PAT/GH_TOKEN/GITHUB_TOKEN); release API calls will be unauthenticated and rate-limited.")
+}
+
 pacman::p_load(
   dplyr,
   fs,

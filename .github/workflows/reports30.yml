@@ -28,7 +28,8 @@ jobs:
     permissions:
       contents: write
     env:
-      GITHUB_PAT: ${{ secrets.GH_PAT2 }}
+      GITHUB_PAT: ${{ secrets.GH_PAT2 || secrets.GH_PAT || github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
       REPORT_COUNTRIES: ${{ inputs.countries || 'ALL' }}
       REPORT_TIME_PRESETS: last_30_days
       REPORT_START_DATE: ${{ inputs.start_date || '' }}

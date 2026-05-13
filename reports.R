@@ -145,6 +145,17 @@ full_cntry_list <- readRDS("cntry_list.rds") %>%
 
 cntries <- full_cntry_list$iso2c
 
+country_filter <- Sys.getenv("REPORT_COUNTRIES", unset = "")
+if (nzchar(country_filter)) {
+  requested_countries <- country_filter %>%
+    stringr::str_split("[,\\s]+") %>%
+    unlist() %>%
+    stringr::str_to_upper() %>%
+    purrr::discard(~ .x == "")
+  
+  cntries <- intersect(cntries, requested_countries)
+}
+
 # out <- cntries %>%
 #   # "NO" %>%
 #   map(~{
@@ -421,18 +432,28 @@ nicetohave <- rawlings %>%
   arrange(desc(day), country) %>% 
   sample_n(1000)
 
+report_start_date <- suppressWarnings(lubridate::ymd(Sys.getenv("REPORT_START_DATE", unset = "2025-07-05")))
+if (is.na(report_start_date)) {
+  report_start_date <- lubridate::ymd("2025-07-05")
+}
+
+report_max_downloads <- suppressWarnings(as.integer(Sys.getenv("REPORT_MAX_DOWNLOADS", unset = "5000")))
+if (is.na(report_max_downloads)) {
+  report_max_downloads <- 5000L
+}
+
 
 
 thoseneedtobehere %>%
 bind_rows(nicetohave) %>%
-  filter(day > (lubridate::ymd("2025-07-05"))) %>%
+  filter(day > report_start_date) %>%
   # filter(country == "BA") %>% 
   # filter(day>=lubridate::ymd("2024-01-01")) %>% 
 # tibble(country = "BA", 
 #        day = seq.Date(from = lubridate::ymd("2024-01-07"), 
 #                              to = lubridate::ymd("2024-01-07"), by = "1 day")) %>%
   # filter(day <= (lubridate::ymd("2024-01-01"))) %>% 
-  slice(1:5000) %>%
+  slice_head(n = report_max_downloads) %>%
   # slice(1:20) %>%
   # sample_n() %>%
   split(1:nrow(.)) %>% #bashR::simule_map(1)

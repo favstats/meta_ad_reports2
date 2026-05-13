@@ -430,7 +430,7 @@ nicetohave <- rawlings %>%
   # filter(day >= (lubridate::today() - lubridate::days(7))) %>% 
   filter(day >= (lubridate::ymd("2022-01-01"))) %>%
   arrange(desc(day), country) %>% 
-  sample_n(1000)
+  { if (nrow(.) > 1000) sample_n(., 1000) else . }
 
 report_start_date <- suppressWarnings(lubridate::ymd(Sys.getenv("REPORT_START_DATE", unset = "2025-07-05")))
 if (is.na(report_start_date)) {

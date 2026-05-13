@@ -761,7 +761,7 @@ for (report_path in report_paths) {
     pb_upload_file_fr(paste0(the_date, ".zip"), repo = "favstats/meta_ad_reports2", tag = the_tag, releases = full_repos)
     
     lat_dat <- latest_dat %>% 
-      filter(country == cntry_str)
+      filter(country == cntry_str, timeframe == tframe)
     
     if(nrow(lat_dat) == 0){
       check_it <- T

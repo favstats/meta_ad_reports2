@@ -531,11 +531,69 @@ pb_info_fr <- function(repo = guess_repo(),
 }
 
 
+release_value <- function(x, default = "") {
+  if (is.null(x) || length(x) == 0 || is.na(x[[1]])) {
+    return(default)
+  }
+  x[[1]]
+}
+
+get_release_assets_for_tags <- function(repo, tags, .token = gh::gh_token()) {
+  r <- piggyback:::parse_repo(repo)
+  tags <- unique(tags)
+  
+  purrr::map_dfr(tags, function(tag) {
+    release <- gh::gh(
+      "/repos/:owner/:repo/releases/tags/:tag",
+      owner = r[[1]],
+      repo = r[[2]],
+      tag = tag,
+      .token = .token
+    )
+    
+    release_row <- tibble::tibble(
+      file_name = "",
+      size = 0,
+      timestamp = release_value(release$published_at),
+      tag = release_value(release$name, tag),
+      owner = r[[1]],
+      repo = r[[2]],
+      upload_url = release_value(release$upload_url),
+      browser_download_url = release_value(release$html_url),
+      api_download_url = release_value(release$url),
+      id = as.character(release_value(release$id)),
+      state = ""
+    )
+    
+    asset_rows <- purrr::map_dfr(release$assets, function(asset) {
+      tibble::tibble(
+        file_name = release_value(asset$name),
+        size = release_value(asset$size, 0),
+        timestamp = release_value(asset$updated_at),
+        tag = release_value(release$name, tag),
+        owner = r[[1]],
+        repo = r[[2]],
+        upload_url = release_value(release$upload_url),
+        browser_download_url = release_value(asset$browser_download_url),
+        api_download_url = release_value(asset$url),
+        id = as.character(release_value(asset$id)),
+        state = release_value(asset$state)
+      )
+    })
+    
+    dplyr::bind_rows(asset_rows, release_row)
+  })
+}
+
 # Define a function to perform the operation
-get_full_release <- function() {
+get_full_release <- function(repo = "favstats/meta_ad_reports2", tags = NULL) {
   tryCatch({
     # Your original operation
-    full_repos <- pb_info_fr("favstats/meta_ad_reports") %>% as_tibble()
+    if (!is.null(tags)) {
+      full_repos <- get_release_assets_for_tags(repo, tags) %>% as_tibble()
+    } else {
+      full_repos <- pb_info_fr(repo) %>% as_tibble()
+    }
     
     return(full_repos)  # return the result
   }, error = function(e) {
@@ -547,7 +605,7 @@ get_full_release <- function() {
     Sys.sleep(3600)
     
     # Retry the operation
-    return(get_full_release())
+    return(get_full_release(repo, tags = tags))
   })
 }
 

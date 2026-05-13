@@ -548,10 +548,66 @@ report_paths <- dir(paste0("report"), full.names = T, recursive = T) %>%
 # .[200:202]
 
 latest_dat <- tat_path %>%
-  group_by(country) %>% 
+  group_by(country, timeframe) %>% 
   arrange(desc(day)) %>% 
   slice(1) %>% 
   ungroup()
+
+get_latest_rds_day <- function(cntry_str, tframe) {
+  temp_latest <- tempfile(fileext = ".rds")
+  on.exit(unlink(temp_latest), add = TRUE)
+  
+  latest_url <- glue::glue(
+    "https://github.com/favstats/meta_ad_reports2/releases/download/{cntry_str}-{tframe}/latest.rds"
+  )
+  latest_response <- httr::GET(latest_url, httr::write_disk(temp_latest, overwrite = TRUE))
+  
+  if (httr::http_error(latest_response)) {
+    return(as.Date(NA))
+  }
+  
+  latest_data <- tryCatch(readRDS(temp_latest), error = function(e) NULL)
+  if (is.null(latest_data) || !("date" %in% names(latest_data))) {
+    return(as.Date(NA))
+  }
+  
+  latest_days <- suppressWarnings(lubridate::ymd(latest_data$date))
+  if (all(is.na(latest_days))) {
+    return(as.Date(NA))
+  }
+  
+  max(latest_days, na.rm = TRUE)
+}
+
+refresh_latest_rds <- function(cntry_str, tframe, the_date) {
+  current_latest_day <- get_latest_rds_day(cntry_str, tframe)
+  if (!is.na(current_latest_day) && current_latest_day >= lubridate::ymd(the_date)) {
+    return(invisible(FALSE))
+  }
+  
+  temp_report <- tempfile(fileext = ".rds")
+  on.exit(unlink(temp_report), add = TRUE)
+  report_url <- glue::glue(
+    "https://github.com/favstats/meta_ad_reports2/releases/download/{cntry_str}-{tframe}/{the_date}.rds"
+  )
+  report_response <- httr::GET(report_url, httr::write_disk(temp_report, overwrite = TRUE))
+  
+  if (httr::http_error(report_response)) {
+    return(invisible(FALSE))
+  }
+  
+  file.copy(temp_report, "latest.rds", overwrite = TRUE)
+  on.exit(unlink("latest.rds"), add = TRUE)
+  pb_upload_file_fr("latest.rds", repo = "favstats/meta_ad_reports2", tag = paste0(cntry_str, "-", tframe), releases = full_repos)
+  
+  invisible(TRUE)
+}
+
+refresh_latest_rds <- purrr::possibly(refresh_latest_rds, otherwise = NULL, quiet = FALSE)
+
+latest_dat %>%
+  split(seq_len(nrow(.))) %>%
+  walk_progress(~ refresh_latest_rds(.x$country, .x$timeframe, as.character(.x$day)))
 
 # session("https://github.com/favstats/meta_ad_reports2/releases/tag/ZW-lifelong") %>% 
 #   html_elements(".mb-3") %>% 

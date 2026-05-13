@@ -2,6 +2,7 @@ name: "Meta Reports Yesterday"
 on:
   schedule:
     - cron: '0 0 * * *'
+  workflow_dispatch:
       
 jobs:
   update-google-reports:
@@ -114,4 +115,3 @@ jobs:
           conda run -n r-reticulate playwright install --force
       - name: "Script - Meta Run"
         run: Rscript 'reports.R' "yesterday"
-

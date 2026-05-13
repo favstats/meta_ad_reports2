@@ -2,9 +2,11 @@ name: Keepalive Workflow
 on:
   schedule:
     - cron: "0 0 * * 0" # Weekly on Sundays
+  workflow_dispatch:
 
 permissions:
   actions: write
+  contents: write
 
 jobs:
   keepalive:
@@ -15,4 +17,4 @@ jobs:
       - name: Keep workflows alive
         uses: gautamkrishnar/keepalive-workflow@v2
         with:
-          workflow_files: "reports30.yml, reports7.yml, reports90.yml, reportslifelong.yml, reportsyesterday.yml"
+          workflow_files: "reports30.yml, reports7.yml, reports90.yml, reportslifelong.yml, reportsyesterday.yml, update.yml"
